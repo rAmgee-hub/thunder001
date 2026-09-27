@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -15,7 +16,7 @@ const NEXON_BASE = 'https://open.api.nexon.com/maplestory/v1';
 function loadDotEnv() {
   const p = join(ROOT, '.env');
   if (!existsSync(p)) return;
-  for (const line of readFileSync(p, 'utf8').split(/\r?\n/)) {
+  for (const line of readFileSync(p, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   }
@@ -64,4 +65,31 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`메이플 도구: http://localhost:${PORT}`));
+const URL_HOME = `http://localhost:${PORT}`;
+const OPEN = process.argv.includes('--open');
+
+function openBrowser() {
+  if (!OPEN) return;
+  const [cmd, args] =
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '', URL_HOME]] :
+    process.platform === 'darwin' ? ['open', [URL_HOME]] : ['xdg-open', [URL_HOME]];
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+}
+
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    // 이미 켜져 있으면 브라우저만 다시 연다
+    console.log(`이미 실행 중이에요: ${URL_HOME}`);
+    openBrowser();
+    setTimeout(() => process.exit(0), 1500);
+    return;
+  }
+  throw e;
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`메이플 시세 도구: ${URL_HOME}`);
+  console.log(process.env.NEXON_API_KEY ? 'API 키: 설정됨' : 'API 키: 없음 (install.bat을 다시 실행해 입력하세요)');
+  console.log('이 창을 닫으면 도구가 꺼져요.');
+  openBrowser();
+});
