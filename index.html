@@ -13,7 +13,7 @@
 <div class="wrap">
   <header class="mast">
     <h1>메이플 시세 도구</h1>
-    <p class="sub">급별 거래 모아보기 · 아이템 적정가 판정 · 내 캐릭터 장비 가치</p>
+    <p class="sub">급별 거래 모아보기 · 아이템 적정가 판정 · 내 캐릭터 장비 가치 · 육성 현황판</p>
   </header>
 
   <section class="data-bar" aria-label="거래 데이터">
@@ -31,6 +31,7 @@
     <button role="tab" aria-selected="true" data-tab="grade">급별 최근 거래</button>
     <button role="tab" aria-selected="false" data-tab="judge">가격 적정성</button>
     <button role="tab" aria-selected="false" data-tab="char">내 캐릭터 장비 가치</button>
+    <button role="tab" aria-selected="false" data-tab="roster">육성 현황판</button>
   </nav>
 
   <!-- 1. 급별 최근 거래 -->
@@ -113,6 +114,52 @@
         </table>
       </div>
       <p class="hint">추정 시세는 불러온 거래 데이터에서 같은 이름 아이템의 급-가격 관계로 계산해요. 거래 기록이 없는 장비는 '-'로 표시되고 합계에서 빠져요.</p>
+    </div>
+  </section>
+
+  <!-- 4. 육성 현황판 -->
+  <section class="panel" id="tab-roster" hidden>
+    <div class="controls">
+      <button class="btn primary" id="rLoad" type="button">내 계정 불러오기</button>
+      <label>월드 <select id="rWorld" disabled></select></label>
+      <label>필터
+        <select id="rFilter">
+          <option value="all">전체 48직업</option>
+          <option value="owned">보유</option>
+          <option value="todo">미육성</option>
+          <option value="deal">딜 링크</option>
+          <option value="up">250 승급 대상</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">API 키를 발급한 넥슨 계정의 캐릭터만 불러올 수 있어요. 키는 "내 캐릭터 장비 가치" 탭의 입력값이나 로컬 서버의 .env를 사용해요.</p>
+    <p class="status" id="rStatus"></p>
+    <div id="rResult" hidden>
+      <div class="kpis">
+        <div class="kpi"><span>보유 직업</span><b id="rOwned"></b></div>
+        <div class="kpi"><span>레벨 총합</span><b id="rLevels"></b></div>
+        <div class="kpi"><span>유니온</span><b id="rUnion"></b></div>
+        <div class="kpi"><span>SSS 공격대원</span><b id="rSss"></b></div>
+        <div class="kpi"><span>285 달성 (링크 3레벨 증거)</span><b id="r285"></b></div>
+      </div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>직업</th><th>캐릭터</th><th class="num">레벨</th><th>유니온</th><th>공격대원 효과</th><th>링크 스킬</th><th>역할</th></tr></thead>
+          <tbody id="rBody"></tbody>
+        </table>
+      </div>
+      <h2 class="h2">링크 스킬 확보 현황</h2>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>링크 스킬</th><th>직업</th><th class="num">확보</th></tr></thead>
+          <tbody id="rLinks"></tbody>
+        </table>
+      </div>
+      <div class="two">
+        <div class="card"><h3>유니온 공격대원 효과</h3><ul class="list" id="rRaider"></ul></div>
+        <div class="card"><h3 id="rLinkTitle">장착 링크 스킬</h3><ul class="list" id="rEquipped"></ul></div>
+      </div>
+      <p class="hint" id="rUnknown"></p>
     </div>
   </section>
 

@@ -5,6 +5,7 @@ import { loadTrades, groupByGrade, listItems, matchItemName, filterTrades } from
 import { fitGradeModel, estimatePrice, judgePrice } from './src/core/pricing.js';
 import { NexonClient, mapEquipment, mainStatOf, valueEquipment } from './src/core/nexon.js';
 import { sampleTrades } from './src/core/sample.js';
+import { flattenCharacterList, mainWorld, buildRoster, summarizeUnion, summarizeLinkSkills } from './src/core/roster.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -42,7 +43,115 @@ $('tradeFile').addEventListener('change', async (e) => {
     if (!loaded.length) throw new Error('읽을 수 있는 거래가 없어요. 아이템/급/가격 열이 있는지 확인하세요.');
     trades = loaded;
     isSample = false;
-    refreshData();
+    // ---------- 4. 육성 현황판 ----------
+const ROLE_LABEL = { deal: '딜', surv: '생존', farm: '사냥·성장', stat: '스탯' };
+let rosterChars = [];
+let rosterExtra = new Map(); // world → { union, links, main }
+
+function apiClient() {
+  const key = $('cKey').value.trim();
+  if (!proxy.proxy && !key) throw new Error('API 키를 "내 캐릭터 장비 가치" 탭에 입력하세요.');
+  return new NexonClient({ apiKey: key || undefined, baseUrl: proxy.proxy ? 'api/nexon' : undefined });
+}
+
+function apiErrorText(err) {
+  if (err instanceof TypeError && /fetch|network|load failed/i.test(err.message)) {
+    return '브라우저에서 넥슨 서버에 직접 연결하지 못했어요. 터미널에서 "node server.js"로 실행한 뒤 http://localhost:8787 에서 다시 시도하세요.';
+  }
+  return err.message;
+}
+
+async function loadWorldExtra(world) {
+  if (rosterExtra.has(world)) return rosterExtra.get(world);
+  // 유니온은 월드 단위라 그 월드 최고 레벨 캐릭터 하나로 조회한다
+  const main = rosterChars.filter((c) => c.world === world).sort((a, b) => b.level - a.level)[0];
+  const extra = { main, union: null, links: [], errors: [] };
+  if (main) {
+    const client = apiClient();
+    const [u, r, l] = await Promise.allSettled([client.union(main.ocid), client.unionRaider(main.ocid), client.linkSkill(main.ocid)]);
+    extra.union = summarizeUnion(u.value, r.value);
+    extra.links = l.status === 'fulfilled' ? summarizeLinkSkills(l.value) : [];
+    extra.errors = [u, r, l].filter((x) => x.status === 'rejected').map((x) => x.reason.message);
+  }
+  rosterExtra.set(world, extra);
+  return extra;
+}
+
+async function renderRoster() {
+  const world = $('rWorld').value;
+  const roster = buildRoster(rosterChars, { world });
+  const s = roster.summary;
+  const extra = await loadWorldExtra(world).catch((e) => ({ union: null, links: [], errors: [e.message] }));
+
+  $('rOwned').textContent = `${s.owned} / ${s.total}`;
+  $('rLevels').textContent = s.levelSum.toLocaleString('ko-KR');
+  $('rUnion').textContent = extra.union?.level ? `Lv.${extra.union.level.toLocaleString('ko-KR')}` : '-';
+  $('rSss').textContent = s.sss.length ? `${s.sss.length}명` : '0명';
+  $('rSss').title = s.sss.join(', ');
+  $('r285').textContent = `${s.lv285}개`;
+
+  const f = $('rFilter').value;
+  const show = (r) => f === 'all' || (f === 'owned' && r.character) || (f === 'todo' && !r.character)
+    || (f === 'deal' && r.role === 'deal') || (f === 'up' && r.level >= 200 && r.level < 250);
+  let last = null;
+  const rows = [];
+  for (const r of roster.rows.filter(show)) {
+    if (r.group !== last) { last = r.group; rows.push(`<tr class="grp"><td colspan="7">${esc(r.group)}</td></tr>`); }
+    rows.push(`<tr class="${r.character ? '' : 'dim'}">
+      <td><b>${esc(r.job)}</b></td>
+      <td>${esc(r.character?.name ?? '')}</td>
+      <td class="num">${r.level ?? '—'}</td>
+      <td>${r.rank ? `<span class="rank ${r.rank}">${r.rank}</span>` : '<span class="rank">미육성</span>'}</td>
+      <td>${esc(r.union)}<br><span class="hint">${esc(r.unionValues)}</span></td>
+      <td>${esc(r.link ?? '이름 확인 필요')}</td>
+      <td><span class="role ${r.role}">${ROLE_LABEL[r.role]}</span></td>
+    </tr>`);
+  }
+  $('rBody').innerHTML = rows.join('') || '<tr><td colspan="7" class="hint">조건에 맞는 직업이 없어요.</td></tr>';
+
+  $('rLinks').innerHTML = roster.links.map((l) => {
+    const cls = l.owned >= l.total ? 'yes' : l.owned ? 'part' : '';
+    const text = l.total === 1 ? (l.owned ? '확보' : '미보유') : `${l.owned}/${l.total}`;
+    return `<tr class="${l.owned ? '' : 'dim'}"><td><b>${esc(l.link)}</b></td><td>${esc(l.jobs.join(', '))}</td><td class="num ${cls}">${text}</td></tr>`;
+  }).join('');
+
+  const eff = [...(extra.union?.raiderEffects ?? []), ...(extra.union?.occupiedEffects ?? [])];
+  $('rRaider').innerHTML = eff.length ? eff.map((e) => `<li>${esc(e)}</li>`).join('') : '<li class="hint">정보 없음</li>';
+  $('rLinkTitle').textContent = extra.main ? `장착 링크 스킬 (${extra.main.name})` : '장착 링크 스킬';
+  $('rEquipped').innerHTML = extra.links.length
+    ? extra.links.map((l) => `<li><b>${esc(l.name)}</b> Lv.${l.level ?? '?'} <span class="hint">${esc(l.effect)}</span></li>`).join('')
+    : '<li class="hint">정보 없음</li>';
+
+  const notes = [];
+  if (roster.unknown.length) notes.push(`참조표에 없는 직업: ${roster.unknown.map((c) => `${c.name}(${c.job} ${c.level})`).join(', ')}`);
+  if (extra.errors?.length) notes.push(`일부 정보를 못 불러왔어요: ${extra.errors.join(' / ')}`);
+  $('rUnknown').textContent = notes.join(' · ');
+  $('rResult').hidden = false;
+}
+
+$('rLoad').addEventListener('click', async () => {
+  const status = $('rStatus');
+  status.classList.remove('err');
+  status.textContent = '계정 캐릭터 목록을 불러오는 중…';
+  try {
+    rosterChars = flattenCharacterList(await apiClient().characterList());
+    rosterExtra = new Map();
+    if (!rosterChars.length) throw new Error('이 키의 계정에서 캐릭터를 찾지 못했어요.');
+    const worlds = [...new Set(rosterChars.map((c) => c.world))];
+    const main = mainWorld(rosterChars);
+    $('rWorld').innerHTML = worlds.map((w) => `<option${w === main ? ' selected' : ''}>${esc(w)}</option>`).join('');
+    $('rWorld').disabled = false;
+    await renderRoster();
+    status.textContent = `캐릭터 ${rosterChars.length}명을 불러왔어요 (${new Date().toLocaleString('ko-KR')}).`;
+  } catch (err) {
+    status.textContent = apiErrorText(err);
+    status.classList.add('err');
+  }
+});
+$('rWorld').addEventListener('change', renderRoster);
+$('rFilter').addEventListener('change', () => { if (rosterChars.length) renderRoster(); });
+
+refreshData();
   } catch (err) {
     alert(`불러오기 실패: ${err.message}`);
   }
@@ -255,5 +364,113 @@ $('charForm').addEventListener('submit', async (e) => {
     status.classList.add('err');
   }
 });
+
+// ---------- 4. 육성 현황판 ----------
+const ROLE_LABEL = { deal: '딜', surv: '생존', farm: '사냥·성장', stat: '스탯' };
+let rosterChars = [];
+let rosterExtra = new Map(); // world → { union, links, main }
+
+function apiClient() {
+  const key = $('cKey').value.trim();
+  if (!proxy.proxy && !key) throw new Error('API 키를 "내 캐릭터 장비 가치" 탭에 입력하세요.');
+  return new NexonClient({ apiKey: key || undefined, baseUrl: proxy.proxy ? 'api/nexon' : undefined });
+}
+
+function apiErrorText(err) {
+  if (err instanceof TypeError && /fetch|network|load failed/i.test(err.message)) {
+    return '브라우저에서 넥슨 서버에 직접 연결하지 못했어요. 터미널에서 "node server.js"로 실행한 뒤 http://localhost:8787 에서 다시 시도하세요.';
+  }
+  return err.message;
+}
+
+async function loadWorldExtra(world) {
+  if (rosterExtra.has(world)) return rosterExtra.get(world);
+  // 유니온은 월드 단위라 그 월드 최고 레벨 캐릭터 하나로 조회한다
+  const main = rosterChars.filter((c) => c.world === world).sort((a, b) => b.level - a.level)[0];
+  const extra = { main, union: null, links: [], errors: [] };
+  if (main) {
+    const client = apiClient();
+    const [u, r, l] = await Promise.allSettled([client.union(main.ocid), client.unionRaider(main.ocid), client.linkSkill(main.ocid)]);
+    extra.union = summarizeUnion(u.value, r.value);
+    extra.links = l.status === 'fulfilled' ? summarizeLinkSkills(l.value) : [];
+    extra.errors = [u, r, l].filter((x) => x.status === 'rejected').map((x) => x.reason.message);
+  }
+  rosterExtra.set(world, extra);
+  return extra;
+}
+
+async function renderRoster() {
+  const world = $('rWorld').value;
+  const roster = buildRoster(rosterChars, { world });
+  const s = roster.summary;
+  const extra = await loadWorldExtra(world).catch((e) => ({ union: null, links: [], errors: [e.message] }));
+
+  $('rOwned').textContent = `${s.owned} / ${s.total}`;
+  $('rLevels').textContent = s.levelSum.toLocaleString('ko-KR');
+  $('rUnion').textContent = extra.union?.level ? `Lv.${extra.union.level.toLocaleString('ko-KR')}` : '-';
+  $('rSss').textContent = s.sss.length ? `${s.sss.length}명` : '0명';
+  $('rSss').title = s.sss.join(', ');
+  $('r285').textContent = `${s.lv285}개`;
+
+  const f = $('rFilter').value;
+  const show = (r) => f === 'all' || (f === 'owned' && r.character) || (f === 'todo' && !r.character)
+    || (f === 'deal' && r.role === 'deal') || (f === 'up' && r.level >= 200 && r.level < 250);
+  let last = null;
+  const rows = [];
+  for (const r of roster.rows.filter(show)) {
+    if (r.group !== last) { last = r.group; rows.push(`<tr class="grp"><td colspan="7">${esc(r.group)}</td></tr>`); }
+    rows.push(`<tr class="${r.character ? '' : 'dim'}">
+      <td><b>${esc(r.job)}</b></td>
+      <td>${esc(r.character?.name ?? '')}</td>
+      <td class="num">${r.level ?? '—'}</td>
+      <td>${r.rank ? `<span class="rank ${r.rank}">${r.rank}</span>` : '<span class="rank">미육성</span>'}</td>
+      <td>${esc(r.union)}<br><span class="hint">${esc(r.unionValues)}</span></td>
+      <td>${esc(r.link ?? '이름 확인 필요')}</td>
+      <td><span class="role ${r.role}">${ROLE_LABEL[r.role]}</span></td>
+    </tr>`);
+  }
+  $('rBody').innerHTML = rows.join('') || '<tr><td colspan="7" class="hint">조건에 맞는 직업이 없어요.</td></tr>';
+
+  $('rLinks').innerHTML = roster.links.map((l) => {
+    const cls = l.owned >= l.total ? 'yes' : l.owned ? 'part' : '';
+    const text = l.total === 1 ? (l.owned ? '확보' : '미보유') : `${l.owned}/${l.total}`;
+    return `<tr class="${l.owned ? '' : 'dim'}"><td><b>${esc(l.link)}</b></td><td>${esc(l.jobs.join(', '))}</td><td class="num ${cls}">${text}</td></tr>`;
+  }).join('');
+
+  const eff = [...(extra.union?.raiderEffects ?? []), ...(extra.union?.occupiedEffects ?? [])];
+  $('rRaider').innerHTML = eff.length ? eff.map((e) => `<li>${esc(e)}</li>`).join('') : '<li class="hint">정보 없음</li>';
+  $('rLinkTitle').textContent = extra.main ? `장착 링크 스킬 (${extra.main.name})` : '장착 링크 스킬';
+  $('rEquipped').innerHTML = extra.links.length
+    ? extra.links.map((l) => `<li><b>${esc(l.name)}</b> Lv.${l.level ?? '?'} <span class="hint">${esc(l.effect)}</span></li>`).join('')
+    : '<li class="hint">정보 없음</li>';
+
+  const notes = [];
+  if (roster.unknown.length) notes.push(`참조표에 없는 직업: ${roster.unknown.map((c) => `${c.name}(${c.job} ${c.level})`).join(', ')}`);
+  if (extra.errors?.length) notes.push(`일부 정보를 못 불러왔어요: ${extra.errors.join(' / ')}`);
+  $('rUnknown').textContent = notes.join(' · ');
+  $('rResult').hidden = false;
+}
+
+$('rLoad').addEventListener('click', async () => {
+  const status = $('rStatus');
+  status.classList.remove('err');
+  status.textContent = '계정 캐릭터 목록을 불러오는 중…';
+  try {
+    rosterChars = flattenCharacterList(await apiClient().characterList());
+    rosterExtra = new Map();
+    if (!rosterChars.length) throw new Error('이 키의 계정에서 캐릭터를 찾지 못했어요.');
+    const worlds = [...new Set(rosterChars.map((c) => c.world))];
+    const main = mainWorld(rosterChars);
+    $('rWorld').innerHTML = worlds.map((w) => `<option${w === main ? ' selected' : ''}>${esc(w)}</option>`).join('');
+    $('rWorld').disabled = false;
+    await renderRoster();
+    status.textContent = `캐릭터 ${rosterChars.length}명을 불러왔어요 (${new Date().toLocaleString('ko-KR')}).`;
+  } catch (err) {
+    status.textContent = apiErrorText(err);
+    status.classList.add('err');
+  }
+});
+$('rWorld').addEventListener('change', renderRoster);
+$('rFilter').addEventListener('change', () => { if (rosterChars.length) renderRoster(); });
 
 refreshData();

@@ -64,6 +64,11 @@ export class NexonClient {
 
   basic(ocid, date) { return this.get('/character/basic', { ocid, date }); }
   equipment(ocid, date) { return this.get('/character/item-equipment', { ocid, date }); }
+  linkSkill(ocid, date) { return this.get('/character/link-skill', { ocid, date }); }
+  union(ocid, date) { return this.get('/user/union', { ocid, date }); }
+  unionRaider(ocid, date) { return this.get('/user/union-raider', { ocid, date }); }
+  /** 키를 발급한 넥슨 계정의 전체 캐릭터 목록 (본인 계정만 조회 가능) */
+  characterList() { return this.get('/character/list'); }
 
   /** 캐릭터명 하나로 기본 정보 + 장비를 한 번에 */
   async character(characterName, date) {
