@@ -1,0 +1,12 @@
+{
+  "name": "maple-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "메이플스토리 급별 시세, 아이템 적정가 판정, 캐릭터 장비 가치 측정 모듈",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=20" }
+}

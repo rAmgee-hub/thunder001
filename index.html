@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>메이플 시세 도구</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <h1>메이플 시세 도구</h1>
+    <p class="sub">급별 거래 모아보기 · 아이템 적정가 판정 · 내 캐릭터 장비 가치</p>
+  </header>
+
+  <section class="data-bar" aria-label="거래 데이터">
+    <div>
+      <span class="pill" id="dataBadge">샘플</span>
+      <span id="dataInfo"></span>
+    </div>
+    <label class="btn">
+      거래 데이터 불러오기 (CSV / JSON)
+      <input type="file" id="tradeFile" accept=".csv,.json,text/csv,application/json" hidden>
+    </label>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="grade">급별 최근 거래</button>
+    <button role="tab" aria-selected="false" data-tab="judge">가격 적정성</button>
+    <button role="tab" aria-selected="false" data-tab="char">내 캐릭터 장비 가치</button>
+  </nav>
+
+  <!-- 1. 급별 최근 거래 -->
+  <section class="panel" id="tab-grade">
+    <div class="controls">
+      <label>아이템 <select id="gItem"></select></label>
+      <label>기간
+        <select id="gDays">
+          <option value="7">최근 7일</option>
+          <option value="30" selected>최근 30일</option>
+          <option value="90">최근 90일</option>
+          <option value="0">전체</option>
+        </select>
+      </label>
+      <label>스타포스
+        <select id="gSf"><option value="">전체</option></select>
+      </label>
+    </div>
+    <p class="model-line" id="gModel"></p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th class="num">급</th><th class="num">거래</th><th class="num">중앙값</th><th>범위</th><th>최근 거래</th></tr></thead>
+        <tbody id="gBody"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="gEmpty" hidden>조건에 맞는 거래가 없어요.</p>
+  </section>
+
+  <!-- 2. 가격 적정성 -->
+  <section class="panel" id="tab-judge" hidden>
+    <div class="two">
+      <div class="col">
+        <div class="drop" id="drop" tabindex="0">
+          <p><b>아이템 스크린샷</b>을 끌어다 놓거나 붙여넣기(Ctrl+V), 또는 클릭해서 선택</p>
+          <p class="hint">글자 인식은 브라우저 안에서 처리돼요. 사진은 어디에도 올라가지 않아요.</p>
+          <input type="file" id="imgFile" accept="image/*" hidden>
+          <img id="preview" alt="" hidden>
+        </div>
+        <p class="status" id="ocrStatus"></p>
+        <label class="stack">인식된 텍스트 (틀린 글자는 직접 고치세요)
+          <textarea id="itemText" rows="10" placeholder="예)&#10;22성&#10;아케인셰이드 모자&#10;잠재옵션 레전드리&#10;STR : +12%&#10;STR : +9%&#10;올스탯 : +6%"></textarea>
+        </label>
+      </div>
+      <div class="col">
+        <div class="card" id="parsed"></div>
+        <div class="controls">
+          <label>비교할 아이템 <select id="jItem"></select></label>
+          <label>주스탯
+            <select id="jMain"><option value="">자동</option><option>STR</option><option>DEX</option><option>INT</option><option>LUK</option><option value="HP">HP (데몬 어벤져)</option><option value="XENON">제논</option></select>
+          </label>
+        </div>
+        <div class="controls">
+          <label>판매가 <input id="jPrice" inputmode="text" placeholder="예) 12억 3000만"></label>
+        </div>
+        <div class="card verdict" id="verdict"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 내 캐릭터 -->
+  <section class="panel" id="tab-char" hidden>
+    <form class="controls" id="charForm">
+      <label>캐릭터명 <input id="cName" required autocomplete="off"></label>
+      <label>넥슨 API 키 <input id="cKey" type="password" autocomplete="off" placeholder="로컬 서버에 키가 있으면 비워두기"></label>
+      <label class="check"><input type="checkbox" id="cRemember"> 이 브라우저에 키 기억</label>
+      <button class="btn primary" type="submit">불러오기</button>
+    </form>
+    <p class="hint" id="cHint"></p>
+    <p class="status" id="cStatus"></p>
+    <div id="cResult" hidden>
+      <div class="kpis">
+        <div class="kpi"><span>캐릭터</span><b id="cWho"></b></div>
+        <div class="kpi"><span>시세 추정 합계</span><b id="cTotal"></b></div>
+        <div class="kpi"><span>시세 있는 장비</span><b id="cCount"></b></div>
+      </div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>부위</th><th>아이템</th><th class="num">성</th><th>잠재</th><th class="num">급</th><th class="num">추정 시세</th></tr></thead>
+          <tbody id="cBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">추정 시세는 불러온 거래 데이터에서 같은 이름 아이템의 급-가격 관계로 계산해요. 거래 기록이 없는 장비는 '-'로 표시되고 합계에서 빠져요.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>샘플 데이터는 화면 시연용 가상 값이에요. 실제 시세는 수집한 거래 파일을 불러오세요. 캐릭터 정보는 <a href="https://openapi.nexon.com/" target="_blank" rel="noopener">넥슨 Open API</a>를 사용해요.</p>
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
